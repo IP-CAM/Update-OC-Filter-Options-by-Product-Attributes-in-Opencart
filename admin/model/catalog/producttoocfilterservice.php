@@ -1,36 +1,51 @@
 <?php
 class ModelCatalogProductToOcFilterService extends Model {
+
     private $attributes;
-    private $oldOptions;
+    private $oldOptions=null;
     private $filterData;
 
   public function addProductToFilter($productId, $filterdata)
   {
+      if (!$this->config->get('ocfilter_status')) return;
+
       $this->load->model('catalog/ocfilter');
 
       $this->filterData =$filterdata;
       $this->attributes = $filterdata['product_attribute'];
-      $this->oldOptions = $filterdata['ocfilter_product_option'];
 
-      ksort($this->oldOptions);
+       if (isset($filterdata['ocfilter_product_option'])) {
+           $this->oldOptions = $this->makeOptionsData($filterdata['ocfilter_product_option']);
+       }
+
       $this->UpdateProductAttributes($productId);
-
   }
 
-  protected function UpdateProductAttributes($productId)
+    /**
+     * @param $productId
+     * update ocfilter options by product attributes
+     */
+  private function UpdateProductAttributes($productId)
   {
-
-
         $updatedOptions = $this->getOptionsByAttributes($this->attributes);
 
         foreach ($updatedOptions as $optionId=>$option){
             foreach ($option['values'] as $value){
-                $this->updateValue($optionId, $value['selected'],$productId);
+                if (isset($this->oldOptions[$optionId])){
+                    if (!in_array($value['selected'],$this->oldOptions[$optionId]))
+                        $this->updateValue($optionId, $value['selected'],$productId);
+                }else{
+                    $this->updateValue($optionId, $value['selected'],$productId);
+                }
             }
         }
-
   }
 
+    /**
+     * @param $productId
+     * @return array
+     * get ocfilter product options
+     */
     private function getProductOptions($productId)
   {
       $optionsData = $this->model_catalog_ocfilter->getProductOCFilterValues($productId);
@@ -52,8 +67,10 @@ class ModelCatalogProductToOcFilterService extends Model {
       return $existOptions;
   }
 
-
-
+    /**
+     * @param $attributes
+     * @return array ocfilter options due to product attributes
+     */
     private function getOptionsByAttributes ($attributes)
     {
         $options =[];
@@ -128,9 +145,69 @@ class ModelCatalogProductToOcFilterService extends Model {
         return $values;
     }
 
+    /**
+     * @param $optionId
+     * @param $valueId
+     * @param $productId
+     */
     private function updateValue($optionId,$valueId,$productId)
     {
+        $sql = "INSERT INTO " . DB_PREFIX . "ocfilter_option_value_to_product
+                       (product_id,option_id,value_id) 
+                VALUES(".$productId.",".$optionId.",".$valueId.")";
+
+        $this->db->query($sql);
+    }
+
+    /**
+     * @param $optionId
+     * @param $valueId
+     * @param $productId
+     * @return bool
+     */
+    private function isOptionValueInProduct($optionId,$valueId,$productId)
+    {
+        $sql = "SELECT value_id FROM " . DB_PREFIX . "ocfilter_option_value_to_product
+                    where product_id = '".$productId."' 
+                    and option_id = '".$optionId."'
+                    and value_id = '".$valueId."'";
+
+        $query = $this->db->query($sql)->rows;
+
+        return !empty($query);
 
     }
+
+    /**
+     * @param $productId
+     *
+     */
+    private function clearOCFilterValues($productId)
+    {
+        $sql = "DELETE FROM " . DB_PREFIX . "ocfilter_option_value_to_product
+                    where product_id = '".$productId."'";
+
+        $result = $this->db->query($sql);
+    }
+
+    /**
+     * @param $options
+     * @return array
+     * make simple array of ocfilter options data
+     */
+    private function makeOptionsData($options)
+    {
+        $optionsData = [];
+        ksort($options);
+        foreach ($options as $key=>$option){
+            $optionsData[$key]=[];
+            foreach ($option['values'] as $valueId => $value ){
+                $optionsData[$key][]=$valueId;
+            }
+        }
+
+        return $optionsData;
+    }
 }
+
 ?>
